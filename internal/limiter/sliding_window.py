@@ -1,19 +1,17 @@
 from typing import Tuple
 from internal.limiter.base import BaseLimiter
 from internal.storage.redis_client import RedisClient
+from internal.config.settings import settings
 
 class SlidingWindowLimiter(BaseLimiter):
-    def __init__(self, limit: int, window_size: float):
-        """
-        limit: max requests
-        window_size: window in seconds
-        """
-        self.limit = limit
-        self.window_size = window_size
+    def __init__(self):
+        self.limit = settings.rate_limit.capacity
+        self.window_size = settings.rate_limit.refill_rate  # Assuming refill_rate is used as window size
+        self.key_prefix = settings.rate_limit.key_prefix
         self.redis = RedisClient().get_client()
 
     def _window_key(self, key: str) -> str:
-        return f"rate_limit:sliding:{key}"
+        return f"{self.key_prefix}:sliding:{key}"
 
     def allow(self, key: str, now: float) -> Tuple[bool, int]:
         redis_key = self._window_key(key)
