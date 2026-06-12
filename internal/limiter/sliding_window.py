@@ -1,3 +1,5 @@
+import os
+import uuid
 from typing import Tuple
 from internal.limiter.base import BaseLimiter
 from internal.storage.redis_client import RedisClient
@@ -10,27 +12,27 @@ class SlidingWindowLimiter(BaseLimiter):
         self.key_prefix = settings.rate_limit.key_prefix
         self.redis = RedisClient().get_client()
 
+        # Load sliding window Lua script
+        script_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            "internal", "storage", "scripts"
+        )
+        script_path = os.path.join(script_dir, "sliding_window.lua")
+        with open(script_path, "r") as f:
+            script_code = f.read()
+        self.lua_script = self.redis.register_script(script_code)
+
     def _window_key(self, key: str) -> str:
         return f"{self.key_prefix}:sliding:{key}"
 
     def allow(self, key: str, now: float) -> Tuple[bool, int]:
         redis_key = self._window_key(key)
-        window_start = now - self.window_size
+        # Create a unique member name to avoid overwriting during concurrent requests at the same timestamp
+        member = f"{now}:{uuid.uuid4()}"
 
-        # Remove old entries
-        self.redis.zremrangebyscore(redis_key, 0, window_start)
-        # Count requests in window
-        count = self.redis.zcard(redis_key)
+        # Execute the Lua script atomically
+        res = self.lua_script(keys=[redis_key], args=[now, self.window_size, self.limit, member])
+        allowed_val, remaining = res[0], res[1]
 
-        if count < self.limit:
-            # Allow request, add timestamp
-            self.redis.zadd(redis_key, {str(now): now})
-            allowed = True
-            remaining = self.limit - (count + 1)
-        else:
-            allowed = False
-            remaining = 0
+        return allowed_val == 1, remaining
 
-        # Set expiry to window size to auto-cleanup
-        self.redis.expire(redis_key, int(self.window_size) + 1)
-        return allowed, remaining
