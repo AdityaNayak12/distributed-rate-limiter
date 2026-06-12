@@ -1,9 +1,10 @@
+import os
 from dataclasses import dataclass
 
 @dataclass
 class RateLimitConfig:
     capacity: int = 10
-    refil_rate: float = 5.0
+    refill_rate: float = 5.0
 
     strategy: str = "token_bucket"
 
@@ -15,6 +16,7 @@ class RedisConfig:
     host: str = "localhost"
     port: int = 6379
     db: int = 0
+    password: str = None
 
 
 @dataclass
